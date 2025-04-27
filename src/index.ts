@@ -53,7 +53,7 @@ program
   .option(
     '-p, --providers <hosts>',
     'Comma-separated list of SMTP hosts to check',
-    'smtp.gmail.com,smtp.mail.yahoo.com,smtp-mail.outlook.com,smtp.office365.com,smtp.zoho.com'
+    'smtp.gmail.com,smtp.mail.yahoo.com,smtp-mail.outlook.com,smtp.office365.com,smtpin.zoho.com'
   )
   .action(async options => {
     console.log('Testing SMTP connections to mail providers on port 25...\n');
