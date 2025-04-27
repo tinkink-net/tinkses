@@ -1,5 +1,7 @@
 # TinkSES
 
+[![npm version](https://img.shields.io/npm/v/tinkses.svg)](https://www.npmjs.com/package/tinkses)
+
 An open-source mail sending service, you can use it to send emails from your own server.
 
 Aka, a self-hosted SES.
