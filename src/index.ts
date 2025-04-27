@@ -8,7 +8,7 @@ import inquirer from 'inquirer';
 import { loadConfig, saveConfig, TinkSESConfig } from './config';
 import { SmtpServer } from './smtp-server';
 import { generateDkimKeys, generateSpfRecord, generateDmarcRecord } from './dns-creation';
-import { getAllIPs } from './network';
+import { getAllIPs, testSmtpConnections, SmtpConnectionResult } from './network';
 import { generateDnsConfigurationTips, verifyDnsConfiguration } from './dns-verification';
 
 // Get directory name from import.meta.url
@@ -43,6 +43,52 @@ program
       await initConfig(configPath);
     } else {
       console.log('\nConfiguration already exists. Please edit the config file directly.');
+    }
+  });
+
+// Connection check command to test connectivity to mail providers' SMTP port 25
+program
+  .command('check-smtp')
+  .description('Test connection to mail providers on SMTP port 25')
+  .option(
+    '-p, --providers <hosts>',
+    'Comma-separated list of SMTP hosts to check',
+    'smtp.gmail.com,smtp.mail.yahoo.com,smtp-mail.outlook.com,smtp.office365.com,smtp.zoho.com'
+  )
+  .action(async options => {
+    console.log('Testing SMTP connections to mail providers on port 25...\n');
+
+    const providers = options.providers.split(',').map((host: string) => host.trim());
+
+    console.log(`Testing connections to: ${providers.join(', ')}`);
+    const results = await testSmtpConnections(providers);
+
+    // Format and display results
+    console.log('\nConnection Test Results:');
+    console.log('------------------------');
+
+    // Count successful connections
+    const successCount = results.filter(r => r.success).length;
+
+    results.forEach((result: SmtpConnectionResult) => {
+      if (result.success) {
+        console.log(`✅ ${result.host}: Connected successfully (${result.responseTime}ms)`);
+      } else {
+        console.log(`❌ ${result.host}: Connection failed - ${result.error}`);
+      }
+    });
+
+    console.log('\nSummary:');
+    console.log(`${successCount} of ${results.length} connections successful`);
+
+    if (successCount === 0) {
+      console.log('\n⚠️  Warning: Could not connect to any mail providers on port 25.');
+      console.log('This may indicate that your ISP or network is blocking outbound SMTP traffic.');
+      console.log('This is common for residential and some commercial internet connections.');
+      console.log('Consider the following options:');
+      console.log('1. Contact your ISP to unblock port 25');
+      console.log('2. Use a cloud provider or VPS where port 25 is not blocked');
+      console.log('3. Use a smart host or relay that allows connections on alternative ports');
     }
   });
 

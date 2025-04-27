@@ -157,3 +157,71 @@ export async function getAllIPs(includePrivate: boolean = true): Promise<string[
   // Return unique IPs
   return [...new Set(ips)];
 }
+
+/**
+ * Test connection to common email providers' SMTP servers on port 25
+ * @returns Results of connection tests
+ */
+export interface SmtpConnectionResult {
+  host: string;
+  success: boolean;
+  error?: string;
+  responseTime?: number; // in ms
+}
+
+export async function testSmtpConnections(
+  providers: string[] = [
+    'smtp.gmail.com',
+    'smtp.mail.yahoo.com',
+    'smtp-mail.outlook.com',
+    'smtp.office365.com',
+    'smtp.zoho.com',
+  ]
+): Promise<SmtpConnectionResult[]> {
+  const results: SmtpConnectionResult[] = [];
+  const port = 25;
+
+  // Using native Node.js net module for raw TCP connections
+  const net = await import('net');
+
+  const testConnection = (host: string): Promise<SmtpConnectionResult> => {
+    return new Promise(resolve => {
+      const startTime = Date.now();
+      const socket = net.createConnection({ host, port });
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve({
+          host,
+          success: false,
+          error: 'Connection timed out after 5000ms',
+        });
+      }, 5000);
+
+      socket.on('connect', () => {
+        clearTimeout(timeout);
+        const responseTime = Date.now() - startTime;
+        socket.end();
+        resolve({
+          host,
+          success: true,
+          responseTime,
+        });
+      });
+
+      socket.on('error', err => {
+        clearTimeout(timeout);
+        resolve({
+          host,
+          success: false,
+          error: err.message,
+        });
+      });
+    });
+  };
+
+  // Run tests in parallel
+  const connectionPromises = providers.map(provider => testConnection(provider));
+  const connectionResults = await Promise.all(connectionPromises);
+
+  return connectionResults;
+}
