@@ -1,0 +1,52 @@
+{
+  "name": "tinkses",
+  "version": "0.1.0",
+  "description": "An open-source mail sending service, you can use it to send emails from your own server.",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "tinkses": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "keywords": [
+    "email",
+    "smtp",
+    "ses",
+    "dkim",
+    "spf"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0",
+    "dkim": "^0.8.0",
+    "inquirer": "^12.6.0",
+    "mailparser": "^3.6.5",
+    "nodemailer": "^6.9.7",
+    "smtp-server": "^3.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.1",
+    "@types/mailparser": "^3.4.4",
+    "@types/node": "^20.10.0",
+    "@types/nodemailer": "^6.4.14",
+    "@types/smtp-server": "^3.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.31.0",
+    "@typescript-eslint/parser": "^8.31.0",
+    "eslint": "^9.25.1",
+    "eslint-config-prettier": "^10.1.2",
+    "eslint-plugin-prettier": "^5.2.6",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.3.2"
+  }
+}
