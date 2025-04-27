@@ -175,7 +175,7 @@ export async function testSmtpConnections(
     'smtp.mail.yahoo.com',
     'smtp-mail.outlook.com',
     'smtp.office365.com',
-    'smtp.zoho.com',
+    'smtpin.zoho.com.',
   ]
 ): Promise<SmtpConnectionResult[]> {
   const results: SmtpConnectionResult[] = [];
