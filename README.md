@@ -6,6 +6,8 @@ Aka, a self-hosted SES.
 
 Oh, we don't have any other services dependencies, such as AWS SES, SendGrid, Mailgun, or Database, Redis, etc.
 
+> In case you have any interest, you can also look at our email service [TinkMail](https://tinkmail.me) for both personal and business uses.
+
 ## Features
 
 - Send emails using SMTP
