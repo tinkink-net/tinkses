@@ -2,8 +2,8 @@ import dns from 'dns';
 import { promisify } from 'util';
 import fs from 'fs';
 import crypto from 'crypto';
-import { TinkSESConfig } from './config';
-import { generateSpfRecord, generateDmarcRecord } from './dns-creation';
+import { TinkSESConfig } from './config.js';
+import { generateSpfRecord, generateDmarcRecord } from './dns-creation.js';
 
 // Promisify DNS lookups
 const resolveTxt = promisify(dns.resolveTxt);

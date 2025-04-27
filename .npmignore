@@ -1,0 +1,36 @@
+# Development & Test files
+node_modules/
+src/
+.eslintrc
+.prettierrc
+tsconfig.json
+eslint.config.js
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# Runtime files
+/cwd
+
+# CI/CD & Version Control
+.github/
+.git/
+.gitignore
+
+# Documentation & examples not needed in published package
+docs/
+examples/
+*.md
+!README.md
+!LICENSE.md
+
+# Test files
+test/
+__tests__/
+*.test.ts
+*.spec.ts
+
+# Development configs
+.vscode/
+.idea/
+.editorconfig

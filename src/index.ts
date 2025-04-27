@@ -5,11 +5,11 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import process from 'process';
 import inquirer from 'inquirer';
-import { loadConfig, saveConfig, TinkSESConfig } from './config';
-import { SmtpServer } from './smtp-server';
-import { generateDkimKeys, generateSpfRecord, generateDmarcRecord } from './dns-creation';
-import { getAllIPs, testSmtpConnections, SmtpConnectionResult } from './network';
-import { generateDnsConfigurationTips, verifyDnsConfiguration } from './dns-verification';
+import { loadConfig, saveConfig, TinkSESConfig } from './config.js';
+import { SmtpServer } from './smtp-server.js';
+import { generateDkimKeys, generateSpfRecord, generateDmarcRecord } from './dns-creation.js';
+import { getAllIPs, testSmtpConnections, SmtpConnectionResult } from './network.js';
+import { generateDnsConfigurationTips, verifyDnsConfiguration } from './dns-verification.js';
 
 // Get directory name from import.meta.url
 const __filename = fileURLToPath(import.meta.url);
@@ -68,7 +68,7 @@ program
     console.log('------------------------');
 
     // Count successful connections
-    const successCount = results.filter(r => r.success).length;
+    const successCount = results.filter((r: SmtpConnectionResult) => r.success).length;
 
     results.forEach((result: SmtpConnectionResult) => {
       if (result.success) {
@@ -242,7 +242,7 @@ async function completeInitialization(config: TinkSESConfig, configPath: string)
   console.log('\nDetecting IP addresses...');
   const ips = await getAllIPs(false);
   console.log(`Found ${ips.length} IP addresses:`);
-  ips.forEach(ip => console.log(` - ${ip}`));
+  ips.forEach((ip: string) => console.log(` - ${ip}`));
 
   // Update config with IP addresses
   config.ip = ips;

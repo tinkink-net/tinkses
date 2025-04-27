@@ -1,14 +1,24 @@
 import fs from 'fs';
 import path from 'path';
 import { SMTPServer, SMTPServerOptions } from 'smtp-server';
-import { simpleParser, HeaderLines } from 'mailparser';
+import { simpleParser, HeaderLines, AddressObject } from 'mailparser';
 import nodemailer from 'nodemailer';
-import { DkimConfig, TinkSESConfig } from './config';
+import { DkimConfig, TinkSESConfig } from './config.js';
 import dns from 'dns';
 import { promisify } from 'util';
-import { Readable } from 'stream';
-import addressparser from 'nodemailer/lib/addressparser';
-import { Address, SendMailOptions } from 'nodemailer';
+import { createRequire } from 'module';
+
+import { SendMailOptions } from 'nodemailer';
+
+// Define a type for address objects returned by addressparser
+interface EmailAddress {
+  address: string;
+  name?: string;
+}
+
+// Import addressparser with createRequire since it doesn't have proper types
+const require = createRequire(import.meta.url);
+const addressparser = require('nodemailer/lib/addressparser');
 
 export function createDkimSigner(domain: string, dkimConfig: DkimConfig) {
   try {
@@ -92,7 +102,7 @@ export class SmtpServer {
           try {
             // Parse the email
             const parsedMail = await simpleParser(messageBuffer);
-            const from = session.envelope.mailFrom?.address || 'unknown';
+            const from = session.envelope.mailFrom ? session.envelope.mailFrom.address : 'unknown';
             const to = session.envelope.rcptTo.map(rcpt => rcpt.address).join(', ');
             const subject = parsedMail.subject || '(No Subject)';
             const messageId =
@@ -108,15 +118,39 @@ export class SmtpServer {
             console.log('└──────────────────────────────────────────────────────');
 
             // Create base mail options
+            const flattenAddresses = (field: any) => {
+              if (!field) return '';
+              if (Array.isArray(field)) {
+                return field
+                  .map((addr: any) => (typeof addr === 'string' ? addr : addr.text || addr.address))
+                  .join(', ');
+              }
+              if (typeof field === 'string') return field;
+              if (field.text) return field.text;
+              if (field.value && Array.isArray(field.value)) {
+                return field.value.map((addr: any) => addr.address || addr.text).join(', ');
+              }
+              return '';
+            };
+
             const mailOptions: SendMailOptions = {
               from: from,
-              to: parsedMail.to ? parsedMail.to.text : to,
-              cc: parsedMail.cc ? parsedMail.cc.text : '',
-              bcc: parsedMail.bcc ? parsedMail.bcc.text : '',
+              to: flattenAddresses(parsedMail.to) || to,
+              cc: flattenAddresses(parsedMail.cc),
+              bcc: flattenAddresses(parsedMail.bcc),
               subject: subject,
               text: parsedMail.text || undefined,
               html: parsedMail.html || undefined,
-              attachments: parsedMail.attachments || [],
+              attachments: parsedMail.attachments
+                ? parsedMail.attachments.map((attachment: any) => ({
+                    filename: attachment.filename,
+                    content: attachment.content,
+                    contentType: attachment.contentType,
+                    encoding: attachment.encoding,
+                    contentDisposition:
+                      attachment.contentDisposition === 'inline' ? 'inline' : 'attachment',
+                  }))
+                : [],
               messageId: messageId,
               headers: parsedMail.headerLines
                 .filter(
@@ -132,20 +166,22 @@ export class SmtpServer {
             };
 
             // Get the from address domain for DKIM
-            const fromAddress: Address = addressparser(from, { flatten: true })[0];
+            const fromAddress: EmailAddress = addressparser(from, { flatten: true })[0];
             const fromDomain = fromAddress.address.split('@')[1];
 
             // Create recipient list from envelope or headers
             let recipientsStr = to;
-            if (parsedMail.cc) recipientsStr += ',' + parsedMail.cc.text;
-            if (parsedMail.bcc) recipientsStr += ',' + parsedMail.bcc.text;
+            if (parsedMail.cc)
+              recipientsStr += ',' + (typeof parsedMail.cc === 'string' ? parsedMail.cc : to);
+            if (parsedMail.bcc)
+              recipientsStr += ',' + (typeof parsedMail.bcc === 'string' ? parsedMail.bcc : '');
 
-            const recipients = addressparser(recipientsStr, { flatten: true });
+            const recipients: EmailAddress[] = addressparser(recipientsStr, { flatten: true });
 
-            console.log(`Recipients: ${recipients.map(r => r.address).join(', ')}`);
+            console.log(`Recipients: ${recipients.map((r: EmailAddress) => r.address).join(', ')}`);
 
             // Group recipients by domain
-            const recipientGroups: Record<string, Address[]> = {};
+            const recipientGroups: Record<string, EmailAddress[]> = {};
             for (const recipient of recipients) {
               const recipientDomain = recipient.address.split('@')[1];
               if (!recipientGroups[recipientDomain]) {

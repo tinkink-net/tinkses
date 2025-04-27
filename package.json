@@ -7,14 +7,32 @@
   "bin": {
     "tinkses": "dist/index.js"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/smtp-server.js",
+      "types": "./dist/smtp-server.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
+  },
   "scripts": {
+    "clean": "tsc --build --clean",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
+    "watch": "tsc --watch",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "email",
@@ -25,6 +43,22 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tinkink/tinkses.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tinkink/tinkses/issues"
+  },
+  "homepage": "https://github.com/tinkink/tinkses",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "commander": "^11.1.0",
     "dkim": "^0.8.0",
