@@ -1,21 +1,4 @@
-import fs from 'fs';
 import crypto from 'crypto';
-import path from 'path';
-import { DkimConfig } from './config';
-
-export function createDkimSigner(dkimConfig: DkimConfig) {
-  try {
-    const privateKey = fs.readFileSync(dkimConfig.privateKey, 'utf8');
-    return {
-      domainName: '', // Will be populated from config when used
-      keySelector: dkimConfig.selector,
-      privateKey,
-    };
-  } catch (error) {
-    console.error('Error loading DKIM private key:', error);
-    return undefined;
-  }
-}
 
 export function generateDkimKeys(
   outputDir: string,
@@ -63,7 +46,7 @@ export function generateSpfRecord(domain: string, ips: string[]): string {
     })
     .join(' ');
 
-  const spfRecord = `v=spf1 ${ipEntries} ${ipEntries ? '' : '-all'}`;
+  const spfRecord = `v=spf1 ${ipEntries} ${ipEntries ? '~all' : '-all'}`;
 
   return spfRecord;
 }

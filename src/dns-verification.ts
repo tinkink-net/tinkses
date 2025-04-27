@@ -151,26 +151,22 @@ export function generateDnsConfigurationTips(
   if (spf) {
     const spfRecord = generateSpfRecord(config.domain, config.ip);
     tips += '\n📌 SPF Record:\n';
-    tips += "Add this TXT record to your domain's DNS configuration:\n";
-    tips += `${config.domain}. IN TXT "${spfRecord}"\n`;
+    tips += "Add this TXT record to your domain's DNS configuration:\n\n";
+    tips += `${config.domain}. IN TXT "${spfRecord}"\n\n`;
     tips += 'This allows your server IPs to send mail for your domain.\n';
   }
 
   if (dkim) {
     // If DKIM private key exists, extract public key for DNS record
     let dkimTip = '\n📌 DKIM Record:\n';
-    if (config.dkim.privateKey && fs.existsSync(config.dkim.privateKey)) {
+    if (config.dkim.publicKey) {
       try {
-        const privateKey = fs.readFileSync(config.dkim.privateKey, 'utf8');
-        const publicKey = crypto
-          .createPublicKey(privateKey)
-          .export({ type: 'spki', format: 'pem' })
-          .toString()
+        const publicKey = config.dkim.publicKey
           .replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\n/g, '')
           .trim();
 
-        dkimTip += "Add this TXT record to your domain's DNS configuration:\n";
-        dkimTip += `${config.dkim.selector}._domainkey.${config.domain}. IN TXT "v=DKIM1; k=rsa; p=${publicKey}"\n`;
+        dkimTip += "Add this TXT record to your domain's DNS configuration:\n\n";
+        dkimTip += `${config.dkim.selector}._domainkey.${config.domain}. IN TXT "v=DKIM1; k=rsa; p=${publicKey}"\n\n`;
       } catch (error) {
         dkimTip +=
           'Unable to generate DKIM record from private key. Please run "tinkses init" to generate new keys.\n';
@@ -185,8 +181,8 @@ export function generateDnsConfigurationTips(
   if (dmarc) {
     const dmarcRecord = generateDmarcRecord(config.domain);
     tips += '\n📌 DMARC Record:\n';
-    tips += "Add this TXT record to your domain's DNS configuration:\n";
-    tips += `_dmarc.${config.domain}. IN TXT "${dmarcRecord}"\n`;
+    tips += "Add this TXT record to your domain's DNS configuration:\n\n";
+    tips += `_dmarc.${config.domain}. IN TXT "${dmarcRecord}"\n\n`;
     tips += 'DMARC tells receivers how to handle emails that fail SPF or DKIM checks.\n';
   }
 

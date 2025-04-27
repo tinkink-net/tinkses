@@ -139,7 +139,7 @@ program.action(async () => {
 async function initConfig(configPath: string) {
   let updatedConfig: TinkSESConfig = await runInteractiveSetup();
   updatedConfig = await completeInitialization(updatedConfig, configPath);
-  generateDnsConfigurationTips(updatedConfig, true, true, true);
+  console.log(generateDnsConfigurationTips(updatedConfig, true, true, true));
   console.log('\nInitialization complete! You can now start TinkSES with:');
   console.log(`npx tinkses -c ${configPath}`);
 }

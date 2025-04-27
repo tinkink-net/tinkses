@@ -1,60 +1,72 @@
 import fs from 'fs';
 import path from 'path';
 import { SMTPServer, SMTPServerOptions } from 'smtp-server';
-import { simpleParser } from 'mailparser';
+import { simpleParser, HeaderLines } from 'mailparser';
 import nodemailer from 'nodemailer';
-import { TinkSESConfig } from './config';
-import { createDkimSigner } from './dns-creation';
+import { DkimConfig, TinkSESConfig } from './config';
+import dns from 'dns';
+import { promisify } from 'util';
+import { Readable } from 'stream';
+import addressparser from 'nodemailer/lib/addressparser';
+import { Address, SendMailOptions } from 'nodemailer';
+
+export function createDkimSigner(domain: string, dkimConfig: DkimConfig) {
+  try {
+    const privateKey = dkimConfig.privateKey;
+    if (!privateKey) return undefined;
+
+    return {
+      domainName: domain,
+      keySelector: dkimConfig.selector,
+      privateKey,
+    };
+  } catch (error) {
+    console.error('Error loading DKIM private key:', error);
+    return undefined;
+  }
+}
 
 export class SmtpServer {
   private server: SMTPServer;
   private config: TinkSESConfig;
-  private transporter: nodemailer.Transporter;
 
   constructor(config: TinkSESConfig) {
     this.config = config;
-
-    // Create a transporter for sending emails
-    this.transporter = nodemailer.createTransport({
-      dkim:
-        config.dkim.privateKey && fs.existsSync(config.dkim.privateKey)
-          ? createDkimSigner(config.dkim)
-          : undefined,
-    });
 
     const options: SMTPServerOptions = {
       secure: false, // Changed to false for development
       disableReverseLookup: true,
       authMethods: ['PLAIN', 'LOGIN'],
+      allowInsecureAuth: true,
 
       onAuth: (auth, session, callback) => {
         const username = auth.username;
         const password = auth.password;
 
-        console.log(`Auth attempt: ${username}`);
+        console.log(`[AUTH] Attempt: ${username}`);
 
         // Simple authentication check against config
         if (username === this.config.username && password === this.config.password) {
-          console.log('Authentication successful');
+          console.log(`[AUTH] SUCCESS: User '${username}' authenticated`);
           callback(null, { user: username });
         } else {
-          console.log('Authentication failed');
+          console.log(`[AUTH] FAILED: Invalid credentials for user '${username}'`);
           callback(new Error('Invalid username or password'));
         }
       },
 
       onConnect: (session, callback) => {
-        console.log(`Client connected: ${session.remoteAddress}`);
+        console.log(`[CONN] New connection from ${session.remoteAddress}`);
         callback();
       },
 
       onMailFrom: (address, session, callback) => {
-        console.log(`Mail from: ${address.address}`);
+        console.log(`[FROM] ${address.address}`);
 
         // Ensure the from address is from the configured domain
         const [, domain] = address.address.split('@');
         if (domain !== this.config.domain) {
-          console.log(`Domain ${domain} not allowed, expected ${this.config.domain}`);
+          console.log(`[ERROR] Domain '${domain}' not allowed, expected '${this.config.domain}'`);
           return callback(new Error(`Sending from domain ${domain} not allowed`));
         }
 
@@ -62,12 +74,12 @@ export class SmtpServer {
       },
 
       onRcptTo: (address, session, callback) => {
-        console.log(`Recipient: ${address.address}`);
+        console.log(`[TO] ${address.address}`);
         callback();
       },
 
       onData: (stream, session, callback) => {
-        console.log('Receiving message data');
+        console.log('[DATA] Receiving message data...');
 
         const chunks: Buffer[] = [];
         stream.on('data', chunk => {
@@ -80,30 +92,170 @@ export class SmtpServer {
           try {
             // Parse the email
             const parsedMail = await simpleParser(messageBuffer);
-            console.log(`Received email: ${parsedMail.subject}`);
+            const from = session.envelope.mailFrom?.address || 'unknown';
+            const to = session.envelope.rcptTo.map(rcpt => rcpt.address).join(', ');
+            const subject = parsedMail.subject || '(No Subject)';
+            const messageId =
+              parsedMail.messageId ||
+              `<${Date.now()}.${Math.random().toString(36).substring(2)}@${this.config.domain}>`;
 
-            // Process and send the email
-            const mailOptions = {
-              from: session.envelope.mailFrom?.address,
-              to: session.envelope.rcptTo.map(rcpt => rcpt.address).join(','),
-              subject: parsedMail.subject,
-              text: parsedMail.text,
+            console.log('┌──────────────────────────────────────────────────────');
+            console.log(`│ MESSAGE RECEIVED:`);
+            console.log(`│ From: ${from}`);
+            console.log(`│ To: ${to}`);
+            console.log(`│ Subject: ${subject}`);
+            console.log(`│ MessageID: ${messageId}`);
+            console.log('└──────────────────────────────────────────────────────');
+
+            // Create base mail options
+            const mailOptions: SendMailOptions = {
+              from: from,
+              to: parsedMail.to ? parsedMail.to.text : to,
+              cc: parsedMail.cc ? parsedMail.cc.text : '',
+              bcc: parsedMail.bcc ? parsedMail.bcc.text : '',
+              subject: subject,
+              text: parsedMail.text || undefined,
               html: parsedMail.html || undefined,
-              attachments: parsedMail.attachments,
-              messageId: parsedMail.messageId,
-              headers: parsedMail.headerLines.map(header => ({
-                key: header.key,
-                value: header.line,
-              })),
+              attachments: parsedMail.attachments || [],
+              messageId: messageId,
+              headers: parsedMail.headerLines
+                .filter(
+                  header =>
+                    !['from', 'to', 'cc', 'bcc', 'subject', 'message-id'].includes(
+                      header.key.toLowerCase()
+                    )
+                )
+                .map(header => ({
+                  key: header.key,
+                  value: header.line,
+                })),
             };
 
-            // Send email using the transporter
-            await this.transporter.sendMail(mailOptions);
-            console.log('Email sent successfully');
+            // Get the from address domain for DKIM
+            const fromAddress: Address = addressparser(from, { flatten: true })[0];
+            const fromDomain = fromAddress.address.split('@')[1];
 
-            callback();
+            // Create recipient list from envelope or headers
+            let recipientsStr = to;
+            if (parsedMail.cc) recipientsStr += ',' + parsedMail.cc.text;
+            if (parsedMail.bcc) recipientsStr += ',' + parsedMail.bcc.text;
+
+            const recipients = addressparser(recipientsStr, { flatten: true });
+
+            console.log(`Recipients: ${recipients.map(r => r.address).join(', ')}`);
+
+            // Group recipients by domain
+            const recipientGroups: Record<string, Address[]> = {};
+            for (const recipient of recipients) {
+              const recipientDomain = recipient.address.split('@')[1];
+              if (!recipientGroups[recipientDomain]) {
+                recipientGroups[recipientDomain] = [];
+              }
+              recipientGroups[recipientDomain].push(recipient);
+            }
+
+            // Create DKIM signer
+            const dkimSigner = createDkimSigner(this.config.domain, this.config.dkim);
+
+            // Track delivery results
+            const results = {
+              success: [] as string[],
+              failed: [] as { domain: string; error: string }[],
+            };
+
+            // Send to each domain group
+            for (const domain in recipientGroups) {
+              const domainRecipients = recipientGroups[domain];
+              console.log(
+                `Processing domain: ${domain} with ${domainRecipients.length} recipients`
+              );
+
+              const domainMessage = {
+                envelope: {
+                  from: from,
+                  to: domainRecipients.map(to => to.address),
+                },
+                ...mailOptions,
+              };
+
+              try {
+                // Look up MX records for the domain
+                const mx = await promisify(dns.resolveMx)(domain).catch(() => [
+                  { priority: 0, exchange: domain },
+                ]);
+                const priorityMx = mx.sort((a, b) => a.priority - b.priority)[0];
+                const mxHost = priorityMx.exchange;
+                const mxPort = 25;
+
+                console.log(`Using MX record: ${mxHost}:${mxPort} for domain ${domain}`);
+
+                // Create a transport for this specific domain
+                const transport = nodemailer.createTransport({
+                  host: mxHost,
+                  port: mxPort,
+                  secure: false,
+                  name: fromDomain,
+                  debug: true,
+                  tls: {
+                    rejectUnauthorized: false,
+                  },
+                  dkim: dkimSigner,
+                });
+
+                // Send the email
+                const info = await transport.sendMail(domainMessage);
+                console.log(`[SUCCESS] Email sent to ${domain} (${info.messageId})`);
+                results.success.push(domain);
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error(`[ERROR] Failed to send to domain ${domain}:`, error);
+                results.failed.push({
+                  domain,
+                  error: errorMessage,
+                });
+                // Continue with other domains even if one fails
+              }
+            }
+
+            // Log summary of results
+            console.log('┌──────────────────────────────────────────────────────');
+            console.log(`│ DELIVERY RESULTS:`);
+            console.log(`│ Success: ${results.success.length} domains`);
+            console.log(`│ Failed: ${results.failed.length} domains`);
+            if (results.failed.length > 0) {
+              console.log(`│ Failed domains:`);
+              results.failed.forEach(failure => {
+                console.log(`│   - ${failure.domain}: ${failure.error}`);
+              });
+            }
+            console.log('└──────────────────────────────────────────────────────');
+
+            // Return appropriate response based on results
+            if (results.failed.length > 0) {
+              if (results.success.length > 0) {
+                // Partial success
+                const error = new Error(
+                  `Partial delivery: ${results.success.length} succeeded, ${results.failed.length} failed`
+                );
+                // @ts-ignore - Adding custom properties to Error
+                error.deliveryResults = results;
+                callback(error);
+              } else {
+                // Complete failure
+                const error = new Error(`Delivery failed to all ${results.failed.length} domains`);
+                // @ts-ignore - Adding custom properties to Error
+                error.deliveryResults = results;
+                callback(error);
+              }
+            } else {
+              // Complete success
+              callback();
+            }
           } catch (error) {
-            console.error('Error processing email:', error);
+            console.log('┌──────────────────────────────────────────────────────');
+            console.log(`│ ERROR PROCESSING MESSAGE:`);
+            console.log(`│ ${error instanceof Error ? error.message : String(error)}`);
+            console.log('└──────────────────────────────────────────────────────');
             callback(new Error('Error processing message'));
           }
         });
@@ -113,20 +265,29 @@ export class SmtpServer {
     this.server = new SMTPServer(options);
 
     this.server.on('error', err => {
-      console.error('SMTP Server error:', err);
+      console.log('┌──────────────────────────────────────────────────────');
+      console.log(`│ SMTP SERVER ERROR:`);
+      console.log(`│ ${err instanceof Error ? err.message : String(err)}`);
+      console.log('└──────────────────────────────────────────────────────');
     });
   }
 
   public start(): void {
     this.server.listen(this.config.port, this.config.host, () => {
-      console.log(`SMTP server listening on ${this.config.host}:${this.config.port}`);
+      console.log('┌──────────────────────────────────────────────────────');
+      console.log(`│ SMTP SERVER STARTED`);
+      console.log(`│ Listening on: ${this.config.host}:${this.config.port}`);
+      console.log(`│ Domain: ${this.config.domain}`);
+      console.log('└──────────────────────────────────────────────────────');
     });
   }
 
   public stop(): Promise<void> {
     return new Promise(resolve => {
       this.server.close(() => {
-        console.log('SMTP server stopped');
+        console.log('┌──────────────────────────────────────────────────────');
+        console.log(`│ SMTP SERVER STOPPED`);
+        console.log('└──────────────────────────────────────────────────────');
         resolve();
       });
     });
