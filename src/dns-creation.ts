@@ -20,14 +20,8 @@ export function createDkimSigner(dkimConfig: DkimConfig) {
 export function generateDkimKeys(
   outputDir: string,
   selector: string = 'default'
-): { privateKeyPath: string; publicKeyPath: string; dnsRecord: string } {
+): { privateKey: string; publicKey: string } {
   console.log('Generating DKIM keys...');
-
-  // Create output directory if it doesn't exist
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-
   // Generate key pair
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
     modulusLength: 2048,
@@ -41,16 +35,14 @@ export function generateDkimKeys(
     },
   });
 
-  const privateKeyPath = path.join(outputDir, 'dkim-private.key');
-  const publicKeyPath = path.join(outputDir, 'dkim-public.key');
-
-  // Write keys to files
-  fs.writeFileSync(privateKeyPath, privateKey);
-  fs.writeFileSync(publicKeyPath, publicKey);
+  return {
+    privateKey,
+    publicKey,
+  };
 
   // Create DNS TXT record
   // Convert the public key to the correct format for DNS
-  const publicKeyForDns = publicKey
+  /* const publicKeyForDns = publicKey
     .toString()
     .replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\n/g, '')
     .trim();
@@ -61,7 +53,7 @@ export function generateDkimKeys(
   console.log(`Private key saved at: ${privateKeyPath}`);
   console.log(`Public key saved at: ${publicKeyPath}`);
 
-  return { privateKeyPath, publicKeyPath, dnsRecord };
+  return { privateKeyPath, publicKeyPath, dnsRecord }; */
 }
 
 export function generateSpfRecord(domain: string, ips: string[]): string {

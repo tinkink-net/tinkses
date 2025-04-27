@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 export interface DkimConfig {
+  publicKey: string;
   privateKey: string;
   selector: string;
 }
@@ -24,24 +25,19 @@ export const defaultConfig: TinkSESConfig = {
   domain: 'example.com',
   ip: [],
   dkim: {
-    privateKey: '/path/to/private.key',
+    privateKey: '',
+    publicKey: '',
     selector: 'default',
   },
 };
 
-export function loadConfig(configPath: string): TinkSESConfig {
+export function loadConfig(configPath: string): TinkSESConfig | null {
   try {
     const configFile = fs.readFileSync(configPath, 'utf8');
     return JSON.parse(configFile);
   } catch (error) {
-    console.log(`Config file not found at ${configPath}, creating default config.`);
-    const config = { ...defaultConfig };
-    const dirPath = path.dirname(configPath);
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-    }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    return config;
+    console.error(`Error reading config file at ${configPath}:`, (error as Error).message);
+    return null;
   }
 }
 

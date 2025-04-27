@@ -135,20 +135,20 @@ async function verifyDmarcRecord(domain: string): Promise<VerificationResult> {
 /**
  * Generate DNS configuration tips for missing or invalid records
  * @param config TinkSES configuration
- * @param spfInvalid Whether SPF record is invalid
- * @param dkimInvalid Whether DKIM record is invalid
- * @param dmarcInvalid Whether DMARC record is invalid
+ * @param spf Whether to generate for SPF record
+ * @param dkim Whether to generate for DKIM record
+ * @param dmarc Whether to generate for DMARC record
  * @returns Configuration tips as a formatted string
  */
-function generateDnsConfigurationTips(
+export function generateDnsConfigurationTips(
   config: TinkSESConfig,
-  spfInvalid: boolean,
-  dkimInvalid: boolean,
-  dmarcInvalid: boolean
+  spf: boolean,
+  dkim: boolean,
+  dmarc: boolean
 ): string {
   let tips = '\n=== DNS CONFIGURATION TIPS ===\n';
 
-  if (spfInvalid) {
+  if (spf) {
     const spfRecord = generateSpfRecord(config.domain, config.ip);
     tips += '\n📌 SPF Record:\n';
     tips += "Add this TXT record to your domain's DNS configuration:\n";
@@ -156,7 +156,7 @@ function generateDnsConfigurationTips(
     tips += 'This allows your server IPs to send mail for your domain.\n';
   }
 
-  if (dkimInvalid) {
+  if (dkim) {
     // If DKIM private key exists, extract public key for DNS record
     let dkimTip = '\n📌 DKIM Record:\n';
     if (config.dkim.privateKey && fs.existsSync(config.dkim.privateKey)) {
@@ -182,7 +182,7 @@ function generateDnsConfigurationTips(
     tips += 'DKIM proves email authenticity and prevents domain spoofing.\n';
   }
 
-  if (dmarcInvalid) {
+  if (dmarc) {
     const dmarcRecord = generateDmarcRecord(config.domain);
     tips += '\n📌 DMARC Record:\n';
     tips += "Add this TXT record to your domain's DNS configuration:\n";

@@ -9,7 +9,7 @@ import { loadConfig, saveConfig, TinkSESConfig } from './config';
 import { SmtpServer } from './smtp-server';
 import { generateDkimKeys, generateSpfRecord, generateDmarcRecord } from './dns-creation';
 import { getAllIPs } from './network';
-import { verifyDnsConfiguration } from './dns-verification';
+import { generateDnsConfigurationTips, verifyDnsConfiguration } from './dns-verification';
 
 // Get directory name from import.meta.url
 const __filename = fileURLToPath(import.meta.url);
@@ -30,11 +30,7 @@ program
 // Init command to set up DKIM, detect IP, and generate DNS records
 program
   .command('init')
-  .description('Initialize TinkSES with DKIM keys and detect IP addresses')
-  .option('-o, --output <directory>', 'Directory for DKIM keys', './keys')
-  .option('-d, --domain <domain>', 'Domain name to use')
-  .option('-s, --selector <selector>', 'DKIM selector', 'default')
-  .option('-i, --interactive', 'Use interactive setup mode', false)
+  .description('Initialize TinkSES configuration')
   .action(async options => {
     console.log('Initializing TinkSES...');
 
@@ -42,20 +38,12 @@ program
     const configPath = program.opts().config;
     const config = loadConfig(configPath);
 
-    // If interactive mode or no domain specified, use interactive setup
-    if (options.interactive || !options.domain) {
-      const { config: updatedConfig, outputDir } = await runInteractiveSetup(config, options);
-      await completeInitialization(updatedConfig, outputDir, configPath);
+    // If no config loaded, use interactive setup
+    if (!config) {
+      await initConfig(configPath);
     } else {
-      // Update domain if specified through CLI
-      if (options.domain) {
-        config.domain = options.domain;
-      }
-      await completeInitialization(config, options.output, configPath);
+      console.log('\nConfiguration already exists. Please edit the config file directly.');
     }
-
-    console.log('\nInitialization complete! You can now start TinkSES with:');
-    console.log(`npx tinkses -c ${configPath}`);
   });
 
 // Main command to start server
@@ -69,22 +57,9 @@ program.action(async () => {
   // Load or create config
   const config = loadConfig(configPath);
 
-  // Check if DKIM keys are set up properly
-  const dkimSetupComplete =
-    config.dkim.privateKey &&
-    fs.existsSync(config.dkim.privateKey) &&
-    config.domain &&
-    config.domain !== 'example.com';
-
-  if (!configFileExists || !dkimSetupComplete) {
+  if (!configFileExists || !config) {
     console.log('TinkSES is not initialized properly. Running interactive initialization...');
-
-    // Run interactive setup
-    const { config: updatedConfig, outputDir } = await runInteractiveSetup(config);
-
-    await completeInitialization(updatedConfig, outputDir, configPath);
-
-    console.log('\nInitialization complete!');
+    return await initConfig(configPath);
   }
 
   console.log('Starting TinkSES server...');
@@ -115,22 +90,25 @@ program.action(async () => {
   });
 });
 
+async function initConfig(configPath: string) {
+  let updatedConfig: TinkSESConfig = await runInteractiveSetup();
+  updatedConfig = await completeInitialization(updatedConfig, configPath);
+  generateDnsConfigurationTips(updatedConfig, true, true, true);
+  console.log('\nInitialization complete! You can now start TinkSES with:');
+  console.log(`npx tinkses -c ${configPath}`);
+}
+
 /**
  * Run interactive setup to configure TinkSES
- * @param config Current configuration
- * @param options Command options
- * @returns Updated configuration and output directory
+ * @returns configuration
  */
-async function runInteractiveSetup(
-  config: TinkSESConfig,
-  options: { selector?: string; output?: string } = {}
-) {
+async function runInteractiveSetup() {
   const answers = await inquirer.prompt([
     {
       type: 'input',
       name: 'domain',
       message: 'What domain name will you use for sending emails?',
-      default: config.domain !== 'example.com' ? config.domain : undefined,
+      default: 'example.com',
       validate: input => {
         if (!input || input === 'example.com') {
           return 'Please enter a valid domain name';
@@ -142,19 +120,13 @@ async function runInteractiveSetup(
       type: 'input',
       name: 'selector',
       message: 'What DKIM selector would you like to use?',
-      default: options.selector || config.dkim.selector || 'default',
-    },
-    {
-      type: 'input',
-      name: 'outputDir',
-      message: 'Where should DKIM keys be stored?',
-      default: options.output || './keys',
+      default: 'default',
     },
     {
       type: 'input',
       name: 'port',
       message: 'What port should the SMTP server run on?',
-      default: config.port.toString(),
+      default: '2525',
       validate: input => {
         const port = parseInt(input);
         if (isNaN(port) || port < 1 || port > 65535) {
@@ -167,13 +139,13 @@ async function runInteractiveSetup(
       type: 'input',
       name: 'host',
       message: 'What host should the SMTP server bind to?',
-      default: config.host,
+      default: '127.0.0.1',
     },
     {
       type: 'input',
       name: 'username',
       message: 'Set SMTP authentication username:',
-      default: config.username !== 'user' ? config.username : undefined,
+      default: 'user',
       validate: input => (input ? true : 'Username cannot be empty'),
     },
     {
@@ -186,41 +158,39 @@ async function runInteractiveSetup(
   ]);
 
   // Update config with user answers
-  config.domain = answers.domain;
-  config.dkim.selector = answers.selector;
-  config.port = parseInt(answers.port);
-  config.host = answers.host;
-  config.username = answers.username;
-  config.password = answers.password;
-
-  return { config, outputDir: answers.outputDir };
+  return {
+    domain: answers.domain,
+    port: parseInt(answers.port),
+    host: answers.host,
+    username: answers.username,
+    password: answers.password,
+    ip: [],
+    dkim: {
+      privateKey: '',
+      publicKey: '',
+      selector: answers.selector,
+    },
+  };
 }
 
 /**
  * Complete the initialization process by generating keys and DNS records
  * @param config Configuration
- * @param outputDir Output directory for keys
  * @param configPath Path to save config
  */
-async function completeInitialization(
-  config: TinkSESConfig,
-  outputDir: string,
-  configPath: string
-) {
+async function completeInitialization(config: TinkSESConfig, configPath: string) {
   // Create output directory if it doesn't exist
-  const resolvedOutputDir = path.resolve(outputDir);
+  const resolvedOutputDir = path.dirname(path.resolve(configPath));
   if (!fs.existsSync(resolvedOutputDir)) {
     fs.mkdirSync(resolvedOutputDir, { recursive: true });
   }
 
   // Generate DKIM keys
-  const { privateKeyPath, publicKeyPath, dnsRecord } = generateDkimKeys(
-    resolvedOutputDir,
-    config.dkim.selector
-  );
+  const { privateKey, publicKey } = generateDkimKeys(resolvedOutputDir, config.dkim.selector);
 
   // Update config with DKIM settings
-  config.dkim.privateKey = privateKeyPath;
+  config.dkim.privateKey = privateKey;
+  config.dkim.publicKey = publicKey;
 
   // Detect IP addresses
   console.log('\nDetecting IP addresses...');
@@ -231,26 +201,11 @@ async function completeInitialization(
   // Update config with IP addresses
   config.ip = ips;
 
-  // Generate SPF record
-  const spfRecord = generateSpfRecord(config.domain, ips);
-
-  // Generate DMARC record
-  const dmarcRecord = generateDmarcRecord(config.domain);
-
   // Save updated config
   saveConfig(configPath, config);
   console.log(`\nConfiguration saved to ${configPath}`);
 
-  // Display DNS records to configure
-  console.log('\nPlease configure these DNS records for your domain:');
-  console.log(`\nDKIM Record (${config.dkim.selector}._domainkey.${config.domain}):`);
-  console.log(dnsRecord);
-
-  console.log('\nSPF Record:');
-  console.log(spfRecord);
-
-  console.log(`\nDMARC Record (_dmarc.${config.domain}):`);
-  console.log(dmarcRecord);
+  return config;
 }
 
 // Parse CLI args and execute
