@@ -36,6 +36,22 @@ export function createDkimSigner(domain: string, dkimConfig: DkimConfig) {
   }
 }
 
+const resolveMxWithRetry = async (domain: string, retries = 3): Promise<dns.MxRecord[]> => {
+  let lastError: any;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await promisify(dns.resolveMx)(domain);
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        console.warn(`[WARN] MX lookup failed for ${domain} (attempt ${attempt}), retrying...`);
+        await new Promise(res => setTimeout(res, 200 * attempt));
+      }
+    }
+  }
+  throw lastError;
+};
+
 export class SmtpServer {
   private server: SMTPServer;
   private config: TinkSESConfig;
@@ -139,20 +155,12 @@ export class SmtpServer {
               cc: flattenAddresses(parsedMail.cc),
               bcc: flattenAddresses(parsedMail.bcc),
               subject: subject,
-              text: parsedMail.text || undefined,
-              html: parsedMail.html || undefined,
-              attachments: parsedMail.attachments
-                ? parsedMail.attachments.map((attachment: any) => ({
-                    filename: attachment.filename,
-                    content: attachment.content,
-                    contentType: attachment.contentType,
-                    encoding: attachment.encoding,
-                    contentDisposition:
-                      attachment.contentDisposition === 'inline' ? 'inline' : 'attachment',
-                  }))
-                : [],
+              [parsedMail.html ? 'html' : 'text']:
+                parsedMail.html || parsedMail.text || '(no content)',
+              attachments:
+                (parsedMail.attachments as unknown as SendMailOptions['attachments']) || [],
               messageId: messageId,
-              headers: parsedMail.headerLines
+              /* headers: parsedMail.headerLines
                 .filter(
                   header =>
                     !['from', 'to', 'cc', 'bcc', 'subject', 'message-id'].includes(
@@ -162,7 +170,7 @@ export class SmtpServer {
                 .map(header => ({
                   key: header.key,
                   value: header.line,
-                })),
+                })), */
             };
 
             // Get the from address domain for DKIM
@@ -215,10 +223,8 @@ export class SmtpServer {
               };
 
               try {
-                // Look up MX records for the domain
-                const mx = await promisify(dns.resolveMx)(domain).catch(() => [
-                  { priority: 0, exchange: domain },
-                ]);
+                // Look up MX records for the domain with retry
+                const mx = await resolveMxWithRetry(domain, 3);
                 const priorityMx = mx.sort((a, b) => a.priority - b.priority)[0];
                 const mxHost = priorityMx.exchange;
                 const mxPort = 25;
